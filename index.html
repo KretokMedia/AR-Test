@@ -1,51 +1,53 @@
 <!DOCTYPE html>
 <html>
   <head>
-    <meta charset="utf-8">
-    <title>AR Test</title>
-    <script src="https://aframe.io/releases/1.4.2/aframe.min.js"></script>
+    <meta charset="utf-8" />
+    <title>AR Place Model</title>
+
+    <!-- Use a newer A-Frame that includes ar-hit-test -->
+    <script src="https://aframe.io/releases/1.7.1/aframe.min.js"></script>
   </head>
-  <body>
-   <a-scene
-  webxr="optionalFeatures: hit-test"
-  ar-hit-test="target:#reticle"
-  vr-mode-ui="enabled: false">
 
-  <!-- Reticle (placement target) -->
-  <a-entity
-    id="reticle"
-    geometry="primitive: ring; radiusInner: 0.04; radiusOuter: 0.06"
-    material="shader: flat"
-    rotation="-90 0 0"
-    visible="false">
-  </a-entity>
+  <body style="margin:0; overflow:hidden;">
+    <a-scene
+      renderer="colorManagement: true"
+      xr-mode-ui="enabled: true"
+      webxr="optionalFeatures: hit-test"
+      ar-hit-test="target:#reticle"
+      vr-mode-ui="enabled: false">
 
-  <!-- Your model -->
-  <a-entity
-    id="model"
-    gltf-model="screen.glb"
-    visible="false"
-    scale="0.3 0.3 0.3">
-  </a-entity>
+      <!-- Reticle -->
+      <a-entity
+        id="reticle"
+        geometry="primitive: ring; radiusInner: 0.04; radiusOuter: 0.06"
+        material="shader: flat"
+        rotation="-90 0 0"
+        visible="false">
+      </a-entity>
 
-  <a-camera></a-camera>
+      <!-- Model (hidden until placed) -->
+      <a-entity
+        id="model"
+        gltf-model="screen.glb"
+        visible="false"
+        scale="0.3 0.3 0.3">
+      </a-entity>
 
-  <script>
-    // Tap the screen to place the model at the reticle position
-    document.addEventListener("click", () => {
-      const reticle = document.querySelector("#reticle");
-      const model = document.querySelector("#model");
+      <a-camera></a-camera>
 
-      if (!reticle.object3D.visible) return;
+      <script>
+        // Tap/click to place the model at the reticle
+        document.addEventListener("click", () => {
+          const reticle = document.querySelector("#reticle");
+          const model = document.querySelector("#model");
 
-      model.object3D.position.copy(reticle.object3D.position);
-      model.object3D.quaternion.copy(reticle.object3D.quaternion);
-      model.setAttribute("visible", "true");
-    });
-  </script>
-</a-scene>
+          if (!reticle.object3D.visible) return;
+
+          model.object3D.position.copy(reticle.object3D.position);
+          model.object3D.quaternion.copy(reticle.object3D.quaternion);
+          model.setAttribute("visible", "true");
+        });
+      </script>
+    </a-scene>
   </body>
 </html>
-
-
-
