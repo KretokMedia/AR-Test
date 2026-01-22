@@ -4,53 +4,48 @@
     <meta charset="utf-8">
     <title>AR Test</title>
     <script src="https://aframe.io/releases/1.4.2/aframe.min.js"></script>
-    <script>
-AFRAME.registerComponent("drag-move", {
-  init: function () {
-    const el = this.el;
-    const scene = el.sceneEl;
-
-    this.dragging = false;
-
-    // Start dragging when you touch the model
-    el.addEventListener("mousedown", () => (this.dragging = true));
-    el.addEventListener("mouseup", () => (this.dragging = false));
-    scene.addEventListener("mouseup", () => (this.dragging = false));
-
-    // Touch support
-    el.addEventListener("touchstart", () => (this.dragging = true), { passive: true });
-    scene.addEventListener("touchend", () => (this.dragging = false), { passive: true });
-
-    // Move left/right/up/down while dragging (simple)
-    scene.addEventListener("mousemove", (e) => {
-      if (!this.dragging) return;
-
-      const p = el.getAttribute("position");
-      // small movement amounts, feels better on mobile
-      const dx = (e.movementX || 0) * 0.002;
-      const dy = (e.movementY || 0) * 0.002;
-
-      el.setAttribute("position", {
-        x: p.x + dx,
-        y: p.y - dy,
-        z: p.z
-      });
-    });
-  }
-});
-</script>
   </head>
   <body>
-    <a-scene>
-     <a-entity
-  gltf-model="screen.glb"
-  position="0 0 -1"
-  scale="0.3 0.3 0.3"
-  drag-move>
-</a-entity>
-      <a-camera></a-camera>
-    </a-scene>
+   <a-scene
+  webxr="optionalFeatures: hit-test"
+  ar-hit-test="target:#reticle"
+  vr-mode-ui="enabled: false">
+
+  <!-- Reticle (placement target) -->
+  <a-entity
+    id="reticle"
+    geometry="primitive: ring; radiusInner: 0.04; radiusOuter: 0.06"
+    material="shader: flat"
+    rotation="-90 0 0"
+    visible="false">
+  </a-entity>
+
+  <!-- Your model -->
+  <a-entity
+    id="model"
+    gltf-model="screen.glb"
+    visible="false"
+    scale="0.3 0.3 0.3">
+  </a-entity>
+
+  <a-camera></a-camera>
+
+  <script>
+    // Tap the screen to place the model at the reticle position
+    document.addEventListener("click", () => {
+      const reticle = document.querySelector("#reticle");
+      const model = document.querySelector("#model");
+
+      if (!reticle.object3D.visible) return;
+
+      model.object3D.position.copy(reticle.object3D.position);
+      model.object3D.quaternion.copy(reticle.object3D.quaternion);
+      model.setAttribute("visible", "true");
+    });
+  </script>
+</a-scene>
   </body>
 </html>
+
 
 
