@@ -2,52 +2,26 @@
 <html>
   <head>
     <meta charset="utf-8" />
-    <title>AR Place Model</title>
-
-    <!-- Use a newer A-Frame that includes ar-hit-test -->
+    <title>Place Screen in AR</title>
     <script src="https://aframe.io/releases/1.7.1/aframe.min.js"></script>
   </head>
 
   <body style="margin:0; overflow:hidden;">
     <a-scene
-      renderer="colorManagement: true"
-      xr-mode-ui="enabled: true"
+      xr-mode-ui="XRMode: ar"
       webxr="optionalFeatures: hit-test"
-      ar-hit-test="target:#reticle"
+      ar-hit-test="target: #screen;"
       vr-mode-ui="enabled: false">
 
-      <!-- Reticle -->
+      <!-- Hide model until placed -->
       <a-entity
-        id="reticle"
-        geometry="primitive: ring; radiusInner: 0.04; radiusOuter: 0.06"
-        material="shader: flat"
-        rotation="-90 0 0"
-        visible="false">
-      </a-entity>
-
-      <!-- Model (hidden until placed) -->
-      <a-entity
-        id="model"
+        id="screen"
         gltf-model="screen.glb"
         visible="false"
         scale="0.3 0.3 0.3">
       </a-entity>
 
       <a-camera></a-camera>
-
-      <script>
-        // Tap/click to place the model at the reticle
-        document.addEventListener("click", () => {
-          const reticle = document.querySelector("#reticle");
-          const model = document.querySelector("#model");
-
-          if (!reticle.object3D.visible) return;
-
-          model.object3D.position.copy(reticle.object3D.position);
-          model.object3D.quaternion.copy(reticle.object3D.quaternion);
-          model.setAttribute("visible", "true");
-        });
-      </script>
     </a-scene>
   </body>
 </html>
