@@ -4,11 +4,113 @@
     <meta charset="utf-8" />
     <title>AR Place Screen</title>
     <script src="https://aframe.io/releases/1.7.1/aframe.min.js"></script>
+    <script>
+AFRAME.registerComponent("touch-transform", {
+  schema: {
+    minScale: { default: 0.01 },
+    maxScale: { default: 1.5 },
+    rotateSpeed: { default: 0.6 }
+  },
+
+  init: function () {
+    const el = this.el;
+
+    this.activeTouches = new Map();
+    this.startScale = el.object3D.scale.x;
+    this.startRotationY = el.object3D.rotation.y;
+
+    this.startDist = null;
+    this.startAngle = null;
+    this.startTwoFingerRotY = null;
+
+    const getDist = (a, b) => {
+      const dx = a.clientX - b.clientX;
+      const dy = a.clientY - b.clientY;
+      return Math.hypot(dx, dy);
+    };
+
+    const getAngle = (a, b) => Math.atan2(b.clientY - a.clientY, b.clientX - a.clientX);
+
+    // Stop the page from scrolling/zooming while transforming
+    this.el.sceneEl.canvas.style.touchAction = "none";
+
+    this.onTouchStart = (e) => {
+      for (const t of e.changedTouches) this.activeTouches.set(t.identifier, t);
+
+      const touches = Array.from(this.activeTouches.values());
+      if (touches.length === 1) {
+        // One finger starts rotate
+        this.oneFingerStartX = touches[0].clientX;
+        this.oneFingerStartRotY = el.object3D.rotation.y;
+      }
+
+      if (touches.length === 2) {
+        // Two fingers start pinch + twist
+        const [t1, t2] = touches;
+        this.startDist = getDist(t1, t2);
+        this.startAngle = getAngle(t1, t2);
+        this.startScale = el.object3D.scale.x;
+        this.startTwoFingerRotY = el.object3D.rotation.y;
+      }
+    };
+
+    this.onTouchMove = (e) => {
+      for (const t of e.changedTouches) this.activeTouches.set(t.identifier, t);
+
+      const touches = Array.from(this.activeTouches.values());
+      if (touches.length === 1) {
+        const t = touches[0];
+        const dx = t.clientX - this.oneFingerStartX;
+        el.object3D.rotation.y = this.oneFingerStartRotY + (dx * 0.01 * this.data.rotateSpeed);
+      }
+
+      if (touches.length === 2 && this.startDist) {
+        const [t1, t2] = touches;
+
+        // Pinch scale
+        const dist = getDist(t1, t2);
+        let scale = this.startScale * (dist / this.startDist);
+        scale = Math.min(this.data.maxScale, Math.max(this.data.minScale, scale));
+        el.object3D.scale.set(scale, scale, scale);
+
+        // Two-finger twist rotate (around Y)
+        const angle = getAngle(t1, t2);
+        const delta = angle - this.startAngle;
+        el.object3D.rotation.y = this.startTwoFingerRotY + delta;
+      }
+    };
+
+    this.onTouchEnd = (e) => {
+      for (const t of e.changedTouches) this.activeTouches.delete(t.identifier);
+
+      const touches = Array.from(this.activeTouches.values());
+      if (touches.length < 2) {
+        this.startDist = null;
+        this.startAngle = null;
+        this.startTwoFingerRotY = null;
+      }
+    };
+
+    window.addEventListener("touchstart", this.onTouchStart, { passive: false });
+    window.addEventListener("touchmove", this.onTouchMove, { passive: false });
+    window.addEventListener("touchend", this.onTouchEnd, { passive: false });
+    window.addEventListener("touchcancel", this.onTouchEnd, { passive: false });
+  },
+
+  remove: function () {
+    window.removeEventListener("touchstart", this.onTouchStart);
+    window.removeEventListener("touchmove", this.onTouchMove);
+    window.removeEventListener("touchend", this.onTouchEnd);
+    window.removeEventListener("touchcancel", this.onTouchEnd);
+  }
+});
+</script>
   </head>
 
   <body style="margin:0; overflow:hidden;">
     <a-scene
       xr-mode-ui="XRMode: ar"
+      renderer="antialias: false; precision: mediump; colorManagement: true"
       webxr="optionalFeatures: hit-test"
       ar-hit-test="target: #screen;"
       vr-mode-ui="enabled: false">
@@ -17,10 +119,12 @@
         id="screen"
         gltf-model="screen.glb"
         visible="false"
-        scale="0.03 0.03 0.03">
+        scale="0.08 0.08 0.08"
+        touch-transform="minScale: 0.01; maxScale: 0.8; rotateSpeed: 0.8">
       </a-entity>
 
       <a-camera></a-camera>
     </a-scene>
   </body>
 </html>
+
