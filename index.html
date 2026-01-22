@@ -8,18 +8,16 @@
 
   <body style="margin:0; overflow:hidden;">
     <a-scene
-      background="transparent: true"
+      xr-mode-ui="XRMode: ar"
       webxr="optionalFeatures: hit-test"
       ar-hit-test="target: #screen;"
-      xr-mode-ui="enabled: true"
       vr-mode-ui="enabled: false">
 
-      <!-- Hide it until first placement (A-Frame will set visible=true on select) -->
       <a-entity
         id="screen"
         gltf-model="screen.glb"
         visible="false"
-        scale="0.05 0.05 0.05">
+        scale="0.03 0.03 0.03">
       </a-entity>
 
       <a-camera></a-camera>
