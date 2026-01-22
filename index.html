@@ -2,53 +2,62 @@
 <html>
   <head>
     <meta charset="utf-8" />
-    <title>AR Place Screen - Controls</title>
+    <title>AR Place Screen - Scale & Rotate</title>
     <script src="https://aframe.io/releases/1.7.1/aframe.min.js"></script>
 
     <style>
       body { margin:0; overflow:hidden; font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial; }
+
+      /* Hidden until model is placed */
+      #ui { display: none; }
+
       #ui {
         position: fixed;
         left: 0; right: 0; bottom: 0;
-        padding: 10px;
+        padding: 12px 10px;
         display: flex;
-        gap: 8px;
+        gap: 10px;
         justify-content: center;
         align-items: center;
         z-index: 9999;
-        pointer-events: none; /* allow AR touches through except on buttons */
+        pointer-events: none; /* let taps go through except on buttons */
       }
+
       .btn {
         pointer-events: auto;
         border: 0;
-        padding: 10px 12px;
+        padding: 10px 14px;
         border-radius: 999px;
         background: rgba(0,0,0,0.65);
         color: white;
         font-size: 14px;
+        user-select: none;
+        -webkit-user-select: none;
+        touch-action: manipulation;
       }
-      .btn.active { background: rgba(255,255,255,0.9); color: black; }
-      .btn.small { padding: 10px 14px; font-weight: 700; }
+
+      .btn.small { padding: 10px 16px; font-weight: 800; }
+
       #hint {
         position: fixed;
-        left: 0; right: 0; bottom: 56px;
+        left: 0; right: 0; bottom: 62px;
         text-align: center;
         color: white;
         font-size: 13px;
         text-shadow: 0 1px 2px rgba(0,0,0,0.6);
         z-index: 9999;
         pointer-events: none;
+        display: none; /* hidden until placed */
       }
     </style>
   </head>
 
   <body>
-    <div id="hint">Tap to place. Then use buttons: Move / Rotate / Scale.</div>
+    <div id="hint">Tap anywhere to move. Use buttons to rotate/scale.</div>
 
     <div id="ui">
-      <button id="moveBtn" class="btn active">Move</button>
-      <button id="rotBtn" class="btn">Rotate</button>
-      <button id="scaleBtn" class="btn">Scale</button>
+      <button id="rotLeft" class="btn">↺ Rotate</button>
+      <button id="rotRight" class="btn">Rotate ↻</button>
       <button id="minusBtn" class="btn small">−</button>
       <button id="plusBtn" class="btn small">+</button>
     </div>
@@ -60,6 +69,7 @@
       ar-hit-test="target: #screen;"
       vr-mode-ui="enabled: false">
 
+      <!-- Model. ar-hit-test will set visible=true when it places it the first time. -->
       <a-entity
         id="screen"
         gltf-model="screen.glb"
@@ -72,112 +82,64 @@
 
     <script>
       const screenEl = document.querySelector("#screen");
-      const sceneEl = document.querySelector("a-scene");
-
-      // UI
-      const moveBtn = document.getElementById("moveBtn");
-      const rotBtn = document.getElementById("rotBtn");
-      const scaleBtn = document.getElementById("scaleBtn");
-      const plusBtn = document.getElementById("plusBtn");
-      const minusBtn = document.getElementById("minusBtn");
+      const ui = document.getElementById("ui");
       const hint = document.getElementById("hint");
 
-      let mode = "move"; // "move" | "rotate" | "scale"
+      const plusBtn = document.getElementById("plusBtn");
+      const minusBtn = document.getElementById("minusBtn");
+      const rotLeft = document.getElementById("rotLeft");
+      const rotRight = document.getElementById("rotRight");
+
+      // Show UI only after the model is placed (visible=true)
       let placed = false;
-
-      const setMode = (m) => {
-        mode = m;
-        moveBtn.classList.toggle("active", m === "move");
-        rotBtn.classList.toggle("active", m === "rotate");
-        scaleBtn.classList.toggle("active", m === "scale");
-        hint.textContent = placed
-          ? (m === "move" ? "Drag left/right/up/down to move." :
-             m === "rotate" ? "Drag left/right to rotate." :
-                              "Drag left/right to scale, or use + / −.")
-          : "Tap to place. Then use buttons: Move / Rotate / Scale.";
-      };
-
-      moveBtn.onclick = () => setMode("move");
-      rotBtn.onclick = () => setMode("rotate");
-      scaleBtn.onclick = () => setMode("scale");
-
-      // Reliable scale buttons
-      const clamp = (v, min, max) => Math.min(max, Math.max(min, v));
-      const scaleBy = (factor) => {
-        const s = screenEl.object3D.scale.x;
-        const next = clamp(s * factor, 0.02, 2.5);
-        screenEl.object3D.scale.set(next, next, next);
-      };
-      plusBtn.onclick = () => scaleBy(1.15);
-      minusBtn.onclick = () => scaleBy(0.87);
-
-      // Detect when A-Frame makes it visible (first placement)
       const obs = new MutationObserver(() => {
         const v = screenEl.getAttribute("visible");
         placed = (v === true || v === "true");
-        if (placed) setMode(mode);
+        ui.style.display = placed ? "flex" : "none";
+        hint.style.display = placed ? "block" : "none";
       });
       obs.observe(screenEl, { attributes: true, attributeFilter: ["visible"] });
 
-      // Drag controls (single finger drag)
-      let dragging = false;
-      let startX = 0, startY = 0;
-      let startRotY = 0;
-      let startPos = { x: 0, y: 0, z: 0 };
-      let startScale = 0.08;
+      const clamp = (v, min, max) => Math.min(max, Math.max(min, v));
 
-      // Attach to canvas once it exists
-      sceneEl.addEventListener("renderstart", () => {
-        const canvas = sceneEl.canvas;
-        canvas.style.touchAction = "none";
+      // Scale: reliable buttons
+      function scaleBy(factor) {
+        const s = screenEl.object3D.scale.x;
+        const next = clamp(s * factor, 0.02, 3.0);
+        screenEl.object3D.scale.set(next, next, next);
+      }
+      plusBtn.addEventListener("click", () => scaleBy(1.15));
+      minusBtn.addEventListener("click", () => scaleBy(0.87));
 
-        canvas.addEventListener("pointerdown", (e) => {
-          if (!placed) return; // don't interfere with tap-to-place
-          // Ignore touches on UI
-          if (e.target.closest && e.target.closest("#ui")) return;
+      // Rotate around its own Y axis (center) via buttons
+      // Press-and-hold rotation feels better than single clicks
+      let rotTimer = null;
+      function startRotate(dir) {
+        if (!placed) return;
+        stopRotate();
+        rotTimer = setInterval(() => {
+          // Small increments = smooth
+          screenEl.object3D.rotation.y += dir * 0.05; // radians per tick
+        }, 16); // ~60fps
+      }
+      function stopRotate() {
+        if (rotTimer) clearInterval(rotTimer);
+        rotTimer = null;
+      }
 
-          dragging = true;
-          startX = e.clientX;
-          startY = e.clientY;
+      // Pointer events work well on mobile + desktop
+      rotLeft.addEventListener("pointerdown", (e) => { e.preventDefault(); startRotate(-1); });
+      rotRight.addEventListener("pointerdown", (e) => { e.preventDefault(); startRotate(+1); });
+      window.addEventListener("pointerup", stopRotate);
+      window.addEventListener("pointercancel", stopRotate);
 
-          startRotY = screenEl.object3D.rotation.y;
-          const p = screenEl.object3D.position;
-          startPos = { x: p.x, y: p.y, z: p.z };
-          startScale = screenEl.object3D.scale.x;
-        });
+      // Optional: single-tap rotate step (in case you just click quickly)
+      rotLeft.addEventListener("click", () => { if (placed) screenEl.object3D.rotation.y -= 0.25; });
+      rotRight.addEventListener("click", () => { if (placed) screenEl.object3D.rotation.y += 0.25; });
 
-        canvas.addEventListener("pointermove", (e) => {
-          if (!dragging || !placed) return;
-
-          const dx = (e.clientX - startX);
-          const dy = (e.clientY - startY);
-
-          // Tune these to taste
-          const moveSpeed = 0.0025;  // meters per pixel (ish)
-          const rotSpeed  = 0.008;   // radians per pixel
-          const scaleSpeed = 0.002;  // scale per pixel
-
-          if (mode === "move") {
-            // Move along X/Z plane relative to screen
-            // (simple mapping: drag up/down moves forward/back)
-            screenEl.object3D.position.x = startPos.x + dx * moveSpeed;
-            screenEl.object3D.position.z = startPos.z + dy * moveSpeed;
-          } else if (mode === "rotate") {
-            screenEl.object3D.rotation.y = startRotY + dx * rotSpeed;
-          } else if (mode === "scale") {
-            const next = clamp(startScale + dx * scaleSpeed, 0.02, 2.5);
-            screenEl.object3D.scale.set(next, next, next);
-          }
-        });
-
-        const end = () => { dragging = false; };
-        canvas.addEventListener("pointerup", end);
-        canvas.addEventListener("pointercancel", end);
-        canvas.addEventListener("pointerleave", end);
-      });
-
-      // Initial hint state
-      setMode("move");
+      // IMPORTANT:
+      // Movement is handled by ar-hit-test: tapping the scene moves the model.
+      // The UI has pointer-events enabled only on the buttons, so normal taps still reach the AR scene.
     </script>
   </body>
 </html>
