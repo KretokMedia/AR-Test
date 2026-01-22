@@ -4,16 +4,53 @@
     <meta charset="utf-8">
     <title>AR Test</title>
     <script src="https://aframe.io/releases/1.4.2/aframe.min.js"></script>
+    <script>
+AFRAME.registerComponent("drag-move", {
+  init: function () {
+    const el = this.el;
+    const scene = el.sceneEl;
+
+    this.dragging = false;
+
+    // Start dragging when you touch the model
+    el.addEventListener("mousedown", () => (this.dragging = true));
+    el.addEventListener("mouseup", () => (this.dragging = false));
+    scene.addEventListener("mouseup", () => (this.dragging = false));
+
+    // Touch support
+    el.addEventListener("touchstart", () => (this.dragging = true), { passive: true });
+    scene.addEventListener("touchend", () => (this.dragging = false), { passive: true });
+
+    // Move left/right/up/down while dragging (simple)
+    scene.addEventListener("mousemove", (e) => {
+      if (!this.dragging) return;
+
+      const p = el.getAttribute("position");
+      // small movement amounts, feels better on mobile
+      const dx = (e.movementX || 0) * 0.002;
+      const dy = (e.movementY || 0) * 0.002;
+
+      el.setAttribute("position", {
+        x: p.x + dx,
+        y: p.y - dy,
+        z: p.z
+      });
+    });
+  }
+});
+</script>
   </head>
   <body>
     <a-scene>
      <a-entity
   gltf-model="screen.glb"
   position="0 0 -1"
-  scale="0.3 0.3 0.3">
+  scale="0.3 0.3 0.3"
+  drag-move>
 </a-entity>
       <a-camera></a-camera>
     </a-scene>
   </body>
 </html>
+
 
