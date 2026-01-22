@@ -8,20 +8,22 @@
 AFRAME.registerComponent("touch-transform", {
   schema: {
     minScale: { default: 0.01 },
-    maxScale: { default: 1.5 },
-    rotateSpeed: { default: 0.6 }
+    maxScale: { default: 2.0 },
+    rotateSpeed: { default: 1.0 }
   },
 
   init: function () {
-    const el = this.el;
+    this.canvas = null;
+    this.enabled = false;
 
-    this.activeTouches = new Map();
-    this.startScale = el.object3D.scale.x;
-    this.startRotationY = el.object3D.rotation.y;
+    this.mode = null; // "rotate" | "pinch"
+    this.startScale = 1;
+    this.startRotY = 0;
 
-    this.startDist = null;
-    this.startAngle = null;
-    this.startTwoFingerRotY = null;
+    this.startX = 0;
+
+    this.startDist = 0;
+    this.startAngle = 0;
 
     const getDist = (a, b) => {
       const dx = a.clientX - b.clientX;
@@ -31,80 +33,132 @@ AFRAME.registerComponent("touch-transform", {
 
     const getAngle = (a, b) => Math.atan2(b.clientY - a.clientY, b.clientX - a.clientX);
 
-    // Stop the page from scrolling/zooming while transforming
-    this.el.sceneEl.canvas.style.touchAction = "none";
+    const clamp = (v, min, max) => Math.min(max, Math.max(min, v));
 
+    // Wait until A-Frame has a canvas
+    this.el.sceneEl.addEventListener("renderstart", () => {
+      this.canvas = this.el.sceneEl.canvas;
+      if (!this.canvas) return;
+
+      // Prevent browser gestures (scroll/zoom/back swipe) on the canvas
+      this.canvas.style.touchAction = "none";
+
+      // Bind to canvas (NOT window)
+      this.canvas.addEventListener("touchstart", this.onTouchStart, { passive: false });
+      this.canvas.addEventListener("touchmove", this.onTouchMove, { passive: false });
+      this.canvas.addEventListener("touchend", this.onTouchEnd, { passive: false });
+      this.canvas.addEventListener("touchcancel", this.onTouchEnd, { passive: false });
+    });
+
+    // Enable transforms only after the model is visible (placed)
+    const observer = new MutationObserver(() => {
+      const v = this.el.getAttribute("visible");
+      this.enabled = (v === true || v === "true");
+    });
+    observer.observe(this.el, { attributes: true, attributeFilter: ["visible"] });
+    this._observer = observer;
+
+    // Handlers must be bound to this
     this.onTouchStart = (e) => {
-      for (const t of e.changedTouches) this.activeTouches.set(t.identifier, t);
+      if (!this.enabled) return;
+      if (e.touches.length === 0) return;
 
-      const touches = Array.from(this.activeTouches.values());
-      if (touches.length === 1) {
-        // One finger starts rotate
-        this.oneFingerStartX = touches[0].clientX;
-        this.oneFingerStartRotY = el.object3D.rotation.y;
-      }
+      e.preventDefault();
 
-      if (touches.length === 2) {
-        // Two fingers start pinch + twist
-        const [t1, t2] = touches;
+      // Pinch mode
+      if (e.touches.length >= 2) {
+        const t1 = e.touches[0];
+        const t2 = e.touches[1];
+
+        this.mode = "pinch";
+        this.startScale = this.el.object3D.scale.x;
+        this.startRotY = this.el.object3D.rotation.y;
+
         this.startDist = getDist(t1, t2);
         this.startAngle = getAngle(t1, t2);
-        this.startScale = el.object3D.scale.x;
-        this.startTwoFingerRotY = el.object3D.rotation.y;
+        return;
+      }
+
+      // Rotate mode (one finger)
+      if (e.touches.length === 1) {
+        const t = e.touches[0];
+        this.mode = "rotate";
+        this.startX = t.clientX;
+        this.startRotY = this.el.object3D.rotation.y;
       }
     };
 
     this.onTouchMove = (e) => {
-      for (const t of e.changedTouches) this.activeTouches.set(t.identifier, t);
+      if (!this.enabled) return;
+      if (e.touches.length === 0) return;
 
-      const touches = Array.from(this.activeTouches.values());
-      if (touches.length === 1) {
-        const t = touches[0];
-        const dx = t.clientX - this.oneFingerStartX;
-        el.object3D.rotation.y = this.oneFingerStartRotY + (dx * 0.01 * this.data.rotateSpeed);
-      }
+      e.preventDefault();
 
-      if (touches.length === 2 && this.startDist) {
-        const [t1, t2] = touches;
+      // If two fingers are down, ALWAYS treat as pinch (don’t rotate)
+      if (e.touches.length >= 2) {
+        const t1 = e.touches[0];
+        const t2 = e.touches[1];
 
-        // Pinch scale
+        // Scale
         const dist = getDist(t1, t2);
-        let scale = this.startScale * (dist / this.startDist);
-        scale = Math.min(this.data.maxScale, Math.max(this.data.minScale, scale));
-        el.object3D.scale.set(scale, scale, scale);
+        const ratio = dist / (this.startDist || dist);
+        let s = this.startScale * ratio;
+        s = clamp(s, this.data.minScale, this.data.maxScale);
+        this.el.object3D.scale.set(s, s, s);
 
-        // Two-finger twist rotate (around Y)
+        // Optional: gentle twist rotate around Y
         const angle = getAngle(t1, t2);
         const delta = angle - this.startAngle;
-        el.object3D.rotation.y = this.startTwoFingerRotY + delta;
+        this.el.object3D.rotation.y = this.startRotY + delta;
+
+        this.mode = "pinch";
+        return;
+      }
+
+      // One finger rotate
+      if (e.touches.length === 1 && this.mode === "rotate") {
+        const t = e.touches[0];
+        const dx = t.clientX - this.startX;
+        this.el.object3D.rotation.y = this.startRotY + (dx * 0.01 * this.data.rotateSpeed);
       }
     };
 
     this.onTouchEnd = (e) => {
-      for (const t of e.changedTouches) this.activeTouches.delete(t.identifier);
+      if (!this.enabled) return;
+      e.preventDefault();
 
-      const touches = Array.from(this.activeTouches.values());
-      if (touches.length < 2) {
-        this.startDist = null;
-        this.startAngle = null;
-        this.startTwoFingerRotY = null;
+      // When fingers change count, reset baseline so it doesn't jump
+      if (e.touches.length === 1) {
+        const t = e.touches[0];
+        this.mode = "rotate";
+        this.startX = t.clientX;
+        this.startRotY = this.el.object3D.rotation.y;
+      } else if (e.touches.length >= 2) {
+        const t1 = e.touches[0];
+        const t2 = e.touches[1];
+        this.mode = "pinch";
+        this.startScale = this.el.object3D.scale.x;
+        this.startRotY = this.el.object3D.rotation.y;
+        this.startDist = getDist(t1, t2);
+        this.startAngle = getAngle(t1, t2);
+      } else {
+        this.mode = null;
       }
     };
-
-    window.addEventListener("touchstart", this.onTouchStart, { passive: false });
-    window.addEventListener("touchmove", this.onTouchMove, { passive: false });
-    window.addEventListener("touchend", this.onTouchEnd, { passive: false });
-    window.addEventListener("touchcancel", this.onTouchEnd, { passive: false });
   },
 
   remove: function () {
-    window.removeEventListener("touchstart", this.onTouchStart);
-    window.removeEventListener("touchmove", this.onTouchMove);
-    window.removeEventListener("touchend", this.onTouchEnd);
-    window.removeEventListener("touchcancel", this.onTouchEnd);
+    if (this._observer) this._observer.disconnect();
+    if (this.canvas) {
+      this.canvas.removeEventListener("touchstart", this.onTouchStart);
+      this.canvas.removeEventListener("touchmove", this.onTouchMove);
+      this.canvas.removeEventListener("touchend", this.onTouchEnd);
+      this.canvas.removeEventListener("touchcancel", this.onTouchEnd);
+    }
   }
 });
 </script>
+
   </head>
 
   <body style="margin:0; overflow:hidden;">
@@ -120,11 +174,12 @@ AFRAME.registerComponent("touch-transform", {
         gltf-model="screen.glb"
         visible="false"
         scale="0.08 0.08 0.08"
-        touch-transform="minScale: 0.01; maxScale: 0.8; rotateSpeed: 0.8">
+        touch-transform="minScale: 0.02; maxScale: 2.5; rotateSpeed: 1.0">
       </a-entity>
 
       <a-camera></a-camera>
     </a-scene>
   </body>
 </html>
+
 
