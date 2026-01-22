@@ -7,21 +7,33 @@
   </head>
 
   <body style="margin:0; overflow:hidden;">
-    <a-scene
-      xr-mode-ui="XRMode: ar"
-      webxr="optionalFeatures: hit-test"
-      ar-hit-test="target: #screen;"
-      vr-mode-ui="enabled: false">
+   <a-scene
+  xr-mode-ui="XRMode: ar"
+  webxr="optionalFeatures: hit-test"
+  ar-hit-test="target: #screen; reticle: #reticle;"
+  vr-mode-ui="enabled: false">
 
-      <!-- Hide model until placed -->
-      <a-entity
-        id="screen"
-        gltf-model="screen.glb"
-        visible="false"
-        scale="0.3 0.3 0.3">
-      </a-entity>
+  <!-- Reticle (shows detected surface) -->
+  <a-entity
+    id="reticle"
+    geometry="primitive: ring; radiusInner: 0.04; radiusOuter: 0.06"
+    material="shader: flat; color: #00ff00"
+    rotation="-90 0 0"
+    visible="false">
+  </a-entity>
+
+  <a-entity
+    id="screen"
+    gltf-model="screen.glb"
+    visible="false"
+    scale="0.3 0.3 0.3">
+  </a-entity>
+
+  <a-camera></a-camera>
+</a-scene>
 
       <a-camera></a-camera>
     </a-scene>
   </body>
 </html>
+
