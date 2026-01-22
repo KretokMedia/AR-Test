@@ -2,29 +2,36 @@
 <html>
   <head>
     <meta charset="utf-8" />
-    <title>AR Place Screen - Scale & Rotate</title>
+    <title>AR Place Screen - Move, Rotate, Scale</title>
     <script src="https://aframe.io/releases/1.7.1/aframe.min.js"></script>
 
     <style>
-      body { margin:0; overflow:hidden; font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial; }
+      body { margin: 0; overflow: hidden; font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial; }
 
-      /* DOM Overlay container (stays visible in AR) */
+      /* WebXR DOM Overlay container */
       #overlay {
         position: fixed;
         inset: 0;
         z-index: 9999;
-        pointer-events: none; /* allow taps to pass through except buttons */
+        pointer-events: none; /* taps go to AR except on buttons */
       }
 
-      /* Hidden until model is placed */
-      #ui { display: none; }
-      #hint { display: none; }
+      #hint {
+        position: absolute;
+        left: 0; right: 0; bottom: 70px;
+        text-align: center;
+        color: white;
+        font-size: 13px;
+        text-shadow: 0 1px 2px rgba(0,0,0,0.6);
+        display: none; /* shown after placement */
+        pointer-events: none;
+      }
 
       #ui {
         position: absolute;
         left: 0; right: 0; bottom: 0;
         padding: 12px 10px;
-        display: flex;
+        display: none; /* shown after placement */
         gap: 10px;
         justify-content: center;
         align-items: center;
@@ -32,7 +39,7 @@
       }
 
       .btn {
-        pointer-events: auto; /* buttons clickable */
+        pointer-events: auto; /* clickable */
         border: 0;
         padding: 10px 14px;
         border-radius: 999px;
@@ -43,24 +50,15 @@
         -webkit-user-select: none;
         touch-action: manipulation;
       }
-      .btn.small { padding: 10px 16px; font-weight: 800; }
 
-      #hint {
-        position: absolute;
-        left: 0; right: 0; bottom: 62px;
-        text-align: center;
-        color: white;
-        font-size: 13px;
-        text-shadow: 0 1px 2px rgba(0,0,0,0.6);
-        pointer-events: none;
-      }
+      .btn.small { padding: 10px 16px; font-weight: 800; }
     </style>
   </head>
 
   <body>
-    <!-- DOM Overlay (this is what stays visible in AR) -->
+    <!-- DOM Overlay (stays visible in AR) -->
     <div id="overlay">
-      <div id="hint">Tap anywhere to move. Use buttons to rotate/scale.</div>
+      <div id="hint">Tap the floor to move the screen. Use buttons to rotate/scale.</div>
 
       <div id="ui">
         <button id="rotLeft" class="btn">↺ Rotate</button>
@@ -88,7 +86,10 @@
     </a-scene>
 
     <script>
+      const sceneEl = document.querySelector("a-scene");
       const screenEl = document.querySelector("#screen");
+
+      const overlay = document.getElementById("overlay");
       const ui = document.getElementById("ui");
       const hint = document.getElementById("hint");
 
@@ -97,7 +98,28 @@
       const rotLeft = document.getElementById("rotLeft");
       const rotRight = document.getElementById("rotRight");
 
-      // Show UI only after model is placed (visible=true)
+      // ---------- Prevent taps on UI from triggering AR placement ----------
+      // ar-hit-test places the model on "select"/tap. When you tap a button,
+      // that tap bubbles and is interpreted as a "select", moving the model.
+      // We stop propagation + prevent default for all pointer/touch events on UI.
+      const stopEvent = (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+      };
+
+      // Block all relevant events on the UI container
+      ["pointerdown","pointerup","pointermove","click","touchstart","touchend","touchmove"].forEach(evt => {
+        ui.addEventListener(evt, stopEvent, { passive: false });
+      });
+
+      // Also block events on each button (extra safety)
+      [rotLeft, rotRight, plusBtn, minusBtn].forEach(btn => {
+        ["pointerdown","pointerup","click","touchstart","touchend"].forEach(evt => {
+          btn.addEventListener(evt, stopEvent, { passive: false });
+        });
+      });
+
+      // ---------- Show UI only after model is placed ----------
       let placed = false;
       const obs = new MutationObserver(() => {
         const v = screenEl.getAttribute("visible");
@@ -107,38 +129,49 @@
       });
       obs.observe(screenEl, { attributes: true, attributeFilter: ["visible"] });
 
-      // Scale buttons
+      // ---------- Scale buttons ----------
       const clamp = (v, min, max) => Math.min(max, Math.max(min, v));
       function scaleBy(factor) {
+        if (!placed) return;
         const s = screenEl.object3D.scale.x;
         const next = clamp(s * factor, 0.02, 3.0);
         screenEl.object3D.scale.set(next, next, next);
       }
-      plusBtn.addEventListener("click", () => scaleBy(1.15));
-      minusBtn.addEventListener("click", () => scaleBy(0.87));
 
-      // Rotate around its own Y axis (center) — press & hold
+      // Use pointer events so it works across devices
+      plusBtn.addEventListener("pointerup", (e) => { stopEvent(e); scaleBy(1.15); }, { passive: false });
+      minusBtn.addEventListener("pointerup", (e) => { stopEvent(e); scaleBy(0.87); }, { passive: false });
+
+      // ---------- Rotate buttons (press & hold) ----------
       let rotTimer = null;
+
       function startRotate(dir) {
         if (!placed) return;
         stopRotate();
         rotTimer = setInterval(() => {
-          screenEl.object3D.rotation.y += dir * 0.05;
-        }, 16);
+          screenEl.object3D.rotation.y += dir * 0.05; // radians per tick
+        }, 16); // ~60fps
       }
+
       function stopRotate() {
         if (rotTimer) clearInterval(rotTimer);
         rotTimer = null;
       }
 
-      rotLeft.addEventListener("pointerdown", (e) => { e.preventDefault(); startRotate(-1); });
-      rotRight.addEventListener("pointerdown", (e) => { e.preventDefault(); startRotate(+1); });
+      rotLeft.addEventListener("pointerdown", (e) => { stopEvent(e); startRotate(-1); }, { passive: false });
+      rotRight.addEventListener("pointerdown", (e) => { stopEvent(e); startRotate(+1); }, { passive: false });
+
+      // Stop rotating when you lift finger anywhere
       window.addEventListener("pointerup", stopRotate);
       window.addEventListener("pointercancel", stopRotate);
 
-      // Quick tap rotate step
-      rotLeft.addEventListener("click", () => { if (placed) screenEl.object3D.rotation.y -= 0.25; });
-      rotRight.addEventListener("click", () => { if (placed) screenEl.object3D.rotation.y += 0.25; });
+      // Optional quick nudge on tap
+      rotLeft.addEventListener("pointerup", (e) => { stopEvent(e); if (placed) screenEl.object3D.rotation.y -= 0.25; }, { passive: false });
+      rotRight.addEventListener("pointerup", (e) => { stopEvent(e); if (placed) screenEl.object3D.rotation.y += 0.25; }, { passive: false });
+
+      // ---------- (Optional) Make sure overlay never steals non-button taps ----------
+      // overlay is pointer-events:none so taps pass through except on buttons (pointer-events:auto)
+      // Nothing else needed here.
     </script>
   </body>
 </html>
