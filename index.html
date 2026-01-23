@@ -13,23 +13,23 @@
         position: fixed;
         inset: 0;
         z-index: 9999;
-        pointer-events: none; /* default: let taps go to AR */
+        pointer-events: none;
       }
 
-      /* DEAD ZONE: captures taps behind the UI so AR doesn't "select" there */
+      /* Dead zone behind buttons (captures touches) */
       #deadzone {
         position: absolute;
         left: 0; right: 0; bottom: 0;
-        height: 200px;                 /* adjust if you want taller/shorter */
-        pointer-events: auto;          /* IMPORTANT: this captures touches */
-        background: rgba(0,0,0,0.0);   /* transparent */
-        display: none;                 /* only show in AR */
+        height: 200px;          /* you can change this */
+        pointer-events: auto;
+        background: rgba(0,0,0,0); /* transparent */
+        display: none;
         touch-action: none;
       }
 
       #hint {
         position: absolute;
-        left: 0; right: 0; bottom: 128px;
+        left: 0; right: 0; bottom: 210px;
         text-align: center;
         color: white;
         font-size: 13px;
@@ -46,7 +46,7 @@
         gap: 10px;
         justify-content: center;
         align-items: center;
-        pointer-events: none; /* only buttons are clickable */
+        pointer-events: none;
       }
 
       .btn {
@@ -61,17 +61,15 @@
         -webkit-user-select: none;
         touch-action: manipulation;
       }
-
       .btn.small { padding: 10px 16px; font-weight: 800; }
     </style>
   </head>
 
   <body>
     <div id="overlay">
-      <!-- Dead zone sits BEHIND the buttons -->
       <div id="deadzone"></div>
 
-      <div id="hint">Tap above the buttons to move. Use buttons to rotate/scale.</div>
+      <div id="hint">Tap ABOVE the buttons to move. Use buttons to rotate/scale.</div>
 
       <div id="ui">
         <button id="rotLeft" class="btn">↺ Rotate</button>
@@ -85,7 +83,7 @@
       xr-mode-ui="XRMode: ar"
       renderer="antialias: false; precision: mediump; colorManagement: true"
       webxr="optionalFeatures: hit-test, dom-overlay; overlayElement: #overlay"
-      ar-hit-test="target: #screen;"
+      ar-hit-test="target: #screen; enabled: true"
       vr-mode-ui="enabled: false">
 
       <a-entity
@@ -113,22 +111,27 @@
 
       let placed = false;
       let inAR = false;
-      let uiLock = false; // while interacting with UI, block placement
 
       const isVisibleTrue = (v) => v === true || v === "true";
 
-      const showOverlayUI = () => {
+      function showOverlayUI() {
         if (!inAR) return;
         ui.style.display = "flex";
         hint.style.display = "block";
-        deadzone.style.display = "block"; // enable deadzone only in AR
-      };
+        deadzone.style.display = "block";
+      }
 
-      const hideOverlayUI = () => {
+      function hideOverlayUI() {
         ui.style.display = "none";
         hint.style.display = "none";
         deadzone.style.display = "none";
-      };
+      }
+
+      // IMPORTANT: toggle hit-test enabled/disabled
+      function setHitTestEnabled(enabled) {
+        // Use object form so A-Frame parses booleans correctly
+        sceneEl.setAttribute("ar-hit-test", { target: "#screen", enabled });
+      }
 
       // AR session start/end
       sceneEl.addEventListener("enter-vr", () => { inAR = true; showOverlayUI(); });
@@ -141,51 +144,43 @@
       });
       obs.observe(screenEl, { attributes: true, attributeFilter: ["visible"] });
 
-      // ---- Deadzone: swallow any tap in that bottom strip so it never reaches AR
-      const swallow = (e) => {
-        // Important: stop it becoming a "select" event for ar-hit-test
+      // Swallow any events in deadzone AND disable hit-test while touching it
+      function lockPlacement(e) {
         e.preventDefault();
         e.stopPropagation();
-      };
-      ["pointerdown","pointerup","click","touchstart","touchend"].forEach(evt => {
-        deadzone.addEventListener(evt, swallow, { passive: false });
-      });
+        setHitTestEnabled(false);
+      }
+      function unlockPlacement(e) {
+        e.preventDefault();
+        e.stopPropagation();
+        // Small delay ensures the XR "select" that triggered from the tap has passed
+        setTimeout(() => setHitTestEnabled(true), 120);
+      }
 
-      // ---- Also lock placement while pressing buttons (extra safety)
-      const lockOn = (e) => { uiLock = true; swallow(e); };
-      const lockOff = (e) => { uiLock = false; swallow(e); };
+      ["pointerdown","touchstart"].forEach(evt => deadzone.addEventListener(evt, lockPlacement, { passive: false }));
+      ["pointerup","touchend","pointercancel","touchcancel"].forEach(evt => deadzone.addEventListener(evt, unlockPlacement, { passive: false }));
 
+      // Buttons: also lock placement while interacting
       function bindButton(btn) {
-        btn.addEventListener("pointerdown", lockOn, { passive: false });
-        btn.addEventListener("pointerup", lockOff, { passive: false });
-        btn.addEventListener("click", swallow, { passive: false });
-        btn.addEventListener("touchstart", lockOn, { passive: false });
-        btn.addEventListener("touchend", lockOff, { passive: false });
+        ["pointerdown","touchstart"].forEach(evt => btn.addEventListener(evt, lockPlacement, { passive: false }));
+        ["pointerup","touchend","pointercancel","touchcancel"].forEach(evt => btn.addEventListener(evt, unlockPlacement, { passive: false }));
+        // Prevent click bubbling too
+        btn.addEventListener("click", (e) => { e.preventDefault(); e.stopPropagation(); }, { passive: false });
       }
       [rotLeft, rotRight, plusBtn, minusBtn].forEach(bindButton);
 
-      // ---- If UI lock is active, prevent ar-hit-test from placing on "select"
-      // ar-hit-test listens to select/click style inputs. We intercept at capture phase.
-      sceneEl.addEventListener("click", (e) => {
-        if (uiLock) {
-          e.preventDefault();
-          e.stopPropagation();
-        }
-      }, true); // capture
-
-      // ---- Controls
+      // Scale
       const clamp = (v, min, max) => Math.min(max, Math.max(min, v));
-
       function scaleBy(factor) {
         if (!placed) return;
         const s = screenEl.object3D.scale.x;
         const next = clamp(s * factor, 0.02, 3.0);
         screenEl.object3D.scale.set(next, next, next);
       }
+      plusBtn.addEventListener("pointerup", (e) => { e.preventDefault(); e.stopPropagation(); scaleBy(1.15); }, { passive: false });
+      minusBtn.addEventListener("pointerup", (e) => { e.preventDefault(); e.stopPropagation(); scaleBy(0.87); }, { passive: false });
 
-      plusBtn.addEventListener("pointerup", (e) => { swallow(e); scaleBy(1.15); }, { passive: false });
-      minusBtn.addEventListener("pointerup", (e) => { swallow(e); scaleBy(0.87); }, { passive: false });
-
+      // Rotate (press & hold)
       let rotTimer = null;
       function startRotate(dir) {
         if (!placed) return;
@@ -199,16 +194,11 @@
         rotTimer = null;
       }
 
-      rotLeft.addEventListener("pointerdown", (e) => { swallow(e); startRotate(-1); }, { passive: false });
-      rotRight.addEventListener("pointerdown", (e) => { swallow(e); startRotate(+1); }, { passive: false });
+      rotLeft.addEventListener("pointerdown", (e) => { e.preventDefault(); e.stopPropagation(); startRotate(-1); }, { passive: false });
+      rotRight.addEventListener("pointerdown", (e) => { e.preventDefault(); e.stopPropagation(); startRotate(+1); }, { passive: false });
 
       window.addEventListener("pointerup", stopRotate);
       window.addEventListener("pointercancel", stopRotate);
-
-      // Optional quick nudge
-      rotLeft.addEventListener("pointerup", (e) => { swallow(e); if (placed) screenEl.object3D.rotation.y -= 0.25; }, { passive: false });
-      rotRight.addEventListener("pointerup", (e) => { swallow(e); if (placed) screenEl.object3D.rotation.y += 0.25; }, { passive: false });
     </script>
   </body>
 </html>
-
