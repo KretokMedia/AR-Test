@@ -2,13 +2,12 @@
 <html>
   <head>
     <meta charset="utf-8" />
-    <title>AR Place Screen - Rotate & Scale</title>
+    <title>AR Place Screen - Rotate & Scale (Deadzone)</title>
     <script src="https://aframe.io/releases/1.7.1/aframe.min.js"></script>
 
     <style>
       body { margin: 0; overflow: hidden; font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial; }
 
-      /* DOM Overlay container */
       #overlay {
         position: fixed;
         inset: 0;
@@ -16,13 +15,13 @@
         pointer-events: none;
       }
 
-      /* Dead zone behind buttons (captures touches) */
+      /* Deadzone behind buttons */
       #deadzone {
         position: absolute;
         left: 0; right: 0; bottom: 0;
-        height: 200px;          /* you can change this */
+        height: 160px;                 /* change if you want */
         pointer-events: auto;
-        background: rgba(0,0,0,0); /* transparent */
+        background: rgba(0,0,0,0);     /* transparent */
         display: none;
         touch-action: none;
       }
@@ -127,9 +126,7 @@
         deadzone.style.display = "none";
       }
 
-      // IMPORTANT: toggle hit-test enabled/disabled
       function setHitTestEnabled(enabled) {
-        // Use object form so A-Frame parses booleans correctly
         sceneEl.setAttribute("ar-hit-test", { target: "#screen", enabled });
       }
 
@@ -137,50 +134,43 @@
       sceneEl.addEventListener("enter-vr", () => { inAR = true; showOverlayUI(); });
       sceneEl.addEventListener("exit-vr",  () => { inAR = false; hideOverlayUI(); });
 
-      // Placement detection
+      // Placement detection (shows UI once model appears)
       const obs = new MutationObserver(() => {
         placed = isVisibleTrue(screenEl.getAttribute("visible"));
         if (placed && inAR) showOverlayUI();
       });
       obs.observe(screenEl, { attributes: true, attributeFilter: ["visible"] });
 
-      // Swallow any events in deadzone AND disable hit-test while touching it
-      function lockPlacement(e) {
+      // Event swallow helper
+      function swallow(e) {
         e.preventDefault();
         e.stopPropagation();
+      }
+
+      // Deadzone: disable placement while touching bottom strip
+      function lockPlacement(e) {
+        swallow(e);
         setHitTestEnabled(false);
       }
       function unlockPlacement(e) {
-        e.preventDefault();
-        e.stopPropagation();
-        // Small delay ensures the XR "select" that triggered from the tap has passed
-        setTimeout(() => setHitTestEnabled(true), 120);
+        swallow(e);
+        // delay to let any XR "select" from this tap pass by
+        setTimeout(() => setHitTestEnabled(true), 140);
       }
 
       ["pointerdown","touchstart"].forEach(evt => deadzone.addEventListener(evt, lockPlacement, { passive: false }));
       ["pointerup","touchend","pointercancel","touchcancel"].forEach(evt => deadzone.addEventListener(evt, unlockPlacement, { passive: false }));
 
-      // Buttons: also lock placement while interacting
-      function bindButton(btn) {
-        ["pointerdown","touchstart"].forEach(evt => btn.addEventListener(evt, lockPlacement, { passive: false }));
-        ["pointerup","touchend","pointercancel","touchcancel"].forEach(evt => btn.addEventListener(evt, unlockPlacement, { passive: false }));
-        // Prevent click bubbling too
-        btn.addEventListener("click", (e) => { e.preventDefault(); e.stopPropagation(); }, { passive: false });
-      }
-      [rotLeft, rotRight, plusBtn, minusBtn].forEach(bindButton);
-
-      // Scale
+      // --- Controls (scale + rotate) ---
       const clamp = (v, min, max) => Math.min(max, Math.max(min, v));
+
       function scaleBy(factor) {
         if (!placed) return;
         const s = screenEl.object3D.scale.x;
         const next = clamp(s * factor, 0.02, 3.0);
         screenEl.object3D.scale.set(next, next, next);
       }
-      plusBtn.addEventListener("pointerup", (e) => { e.preventDefault(); e.stopPropagation(); scaleBy(1.15); }, { passive: false });
-      minusBtn.addEventListener("pointerup", (e) => { e.preventDefault(); e.stopPropagation(); scaleBy(0.87); }, { passive: false });
 
-      // Rotate (press & hold)
       let rotTimer = null;
       function startRotate(dir) {
         if (!placed) return;
@@ -194,9 +184,43 @@
         rotTimer = null;
       }
 
-      rotLeft.addEventListener("pointerdown", (e) => { e.preventDefault(); e.stopPropagation(); startRotate(-1); }, { passive: false });
-      rotRight.addEventListener("pointerdown", (e) => { e.preventDefault(); e.stopPropagation(); startRotate(+1); }, { passive: false });
+      // Buttons: do the action INSIDE the lock handlers so events never get lost
+      function bindScaleButton(btn, factor) {
+        btn.addEventListener("pointerdown", (e) => {
+          lockPlacement(e);
+          scaleBy(factor); // scale instantly on press
+        }, { passive: false });
 
+        btn.addEventListener("pointerup", unlockPlacement, { passive: false });
+        btn.addEventListener("pointercancel", unlockPlacement, { passive: false });
+        btn.addEventListener("click", swallow, { passive: false });
+      }
+
+      function bindRotateButton(btn, dir) {
+        btn.addEventListener("pointerdown", (e) => {
+          lockPlacement(e);
+          startRotate(dir);
+        }, { passive: false });
+
+        btn.addEventListener("pointerup", (e) => {
+          stopRotate();
+          unlockPlacement(e);
+        }, { passive: false });
+
+        btn.addEventListener("pointercancel", (e) => {
+          stopRotate();
+          unlockPlacement(e);
+        }, { passive: false });
+
+        btn.addEventListener("click", swallow, { passive: false });
+      }
+
+      bindScaleButton(plusBtn, 1.15);
+      bindScaleButton(minusBtn, 0.87);
+      bindRotateButton(rotLeft, -1);
+      bindRotateButton(rotRight, +1);
+
+      // Safety: if finger lifts off-button, stop rotation
       window.addEventListener("pointerup", stopRotate);
       window.addEventListener("pointercancel", stopRotate);
     </script>
