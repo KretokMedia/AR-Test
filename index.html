@@ -1,189 +1,37 @@
 <!DOCTYPE html>
-<html>
-  <head>
-    <meta charset="utf-8" />
-    <title>AR Place Screen - 2 Finger Rotate (Pixel Chrome)</title>
-    <script src="https://aframe.io/releases/1.7.1/aframe.min.js"></script>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>AR Model Viewer</title>
 
-    <style>
-      body { margin: 0; overflow: hidden; font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial; }
+  <!-- model-viewer library -->
+  <script type="module"
+    src="https://unpkg.com/@google/model-viewer/dist/model-viewer.min.js">
+  </script>
 
-      /* Keep overlay non-interactive so it DOESN'T block placement */
-      #overlay {
-        position: fixed;
-        inset: 0;
-        z-index: 9999;
-        pointer-events: none;
-      }
+  <style>
+    body {
+      margin: 0;
+      background: #000;
+    }
+    model-viewer {
+      width: 100vw;
+      height: 100vh;
+    }
+  </style>
+</head>
+<body>
 
-      /* Optional: deadzone that blocks placement/move in bottom strip */
-      #deadzone {
-        position: absolute;
-        left: 0; right: 0; bottom: 0;
-        height: 120px;
-        pointer-events: auto;      /* only this part is interactive */
-        background: rgba(0,0,0,0);
-        display: none;
-        touch-action: none;
-      }
+  <model-viewer
+    src="screen.glb"
+    ar
+    ar-modes="webxr scene-viewer quick-look"
+    camera-controls
+    auto-rotate="false"
+    shadow-intensity="1"
+    exposure="1"
+    alt="AR screen model">
+  </model-viewer>
 
-      #hint {
-        position: absolute;
-        left: 0; right: 0; bottom: 18px;
-        text-align: center;
-        color: white;
-        font-size: 13px;
-        text-shadow: 0 1px 2px rgba(0,0,0,0.6);
-        padding: 10px 12px;
-        display: none;
-        pointer-events: none;
-      }
-    </style>
-  </head>
-
-  <body>
-    <div id="overlay">
-      <div id="deadzone"></div>
-      <div id="hint">1 finger: place/move • 2 fingers: rotate</div>
-    </div>
-
-    <a-scene
-      xr-mode-ui="XRMode: ar"
-      renderer="antialias: false; precision: mediump; colorManagement: true"
-      webxr="optionalFeatures: hit-test, dom-overlay; overlayElement: #overlay"
-      ar-hit-test="target: #screen; enabled: true"
-      vr-mode-ui="enabled: false">
-
-      <!--
-        #screen = moved by hit-test (position)
-        #yaw    = we rotate this (rotation)
-        #model  = GLB, with optional orientation fix
-      -->
-      <a-entity id="screen" visible="false" scale="0.5 0.5 0.5">
-        <a-entity id="yaw" rotation="0 0 0">
-          <a-entity id="model" gltf-model="screen.glb" rotation="0 180 0"></a-entity>
-        </a-entity>
-      </a-entity>
-
-      <a-camera></a-camera>
-    </a-scene>
-
-    <script>
-      const sceneEl  = document.querySelector("a-scene");
-      const screenEl = document.querySelector("#screen");
-      const yawEl    = document.querySelector("#yaw");
-
-      const hint = document.getElementById("hint");
-      const deadzone = document.getElementById("deadzone");
-
-      let inAR = false;
-
-      function setHitTestEnabled(enabled) {
-        sceneEl.setAttribute("ar-hit-test", { target: "#screen", enabled });
-      }
-
-      function showUI() {
-        hint.style.display = "block";
-        deadzone.style.display = "block"; // comment out if you don't want a deadzone
-      }
-      function hideUI() {
-        hint.style.display = "none";
-        deadzone.style.display = "none";
-      }
-
-      sceneEl.addEventListener("enter-vr", () => { inAR = true; showUI(); });
-      sceneEl.addEventListener("exit-vr",  () => { inAR = false; hideUI(); });
-
-      // --------- Optional deadzone (bottom strip blocks placement) ----------
-      function swallow(e) {
-        e.preventDefault?.();
-        e.stopPropagation?.();
-      }
-      function lockPlacement(e) {
-        swallow(e);
-        setHitTestEnabled(false);
-      }
-      function unlockPlacement(e) {
-        swallow(e);
-        setTimeout(() => setHitTestEnabled(true), 140);
-      }
-      deadzone.addEventListener("touchstart", lockPlacement, { passive: false });
-      deadzone.addEventListener("touchend", unlockPlacement, { passive: false });
-      deadzone.addEventListener("touchcancel", unlockPlacement, { passive: false });
-
-      // =========================================================
-      // 2-FINGER ROTATE ON THE A-FRAME CANVAS (MOST RELIABLE)
-      // =========================================================
-
-      let rotating = false;
-      let lastAvgX = 0;
-      const ROT_SENSITIVITY = 0.25; // degrees per pixel of horizontal drag
-
-      function getAvgX(touches) {
-        return (touches[0].clientX + touches[1].clientX) / 2;
-      }
-
-      function rotateByDegrees(deg) {
-        const r = yawEl.getAttribute("rotation") || { x: 0, y: 0, z: 0 };
-        yawEl.setAttribute("rotation", { x: r.x, y: r.y + deg, z: r.z });
-      }
-
-      function onCanvasTouchStart(e) {
-        if (!inAR) return;
-        if (!e.touches) return;
-
-        // Start rotating only when 2 fingers are down
-        if (e.touches.length === 2) {
-          // take over gesture
-          e.preventDefault();
-          // do NOT stopPropagation unless needed; but preventDefault is key
-          setHitTestEnabled(false);
-
-          rotating = true;
-          lastAvgX = getAvgX(e.touches);
-        }
-      }
-
-      function onCanvasTouchMove(e) {
-        if (!inAR) return;
-        if (!e.touches) return;
-
-        if (rotating && e.touches.length === 2) {
-          e.preventDefault();
-
-          const avgX = getAvgX(e.touches);
-          const dx = avgX - lastAvgX;
-          lastAvgX = avgX;
-
-          rotateByDegrees(dx * ROT_SENSITIVITY);
-        }
-      }
-
-      function onCanvasTouchEnd(e) {
-        if (!inAR) return;
-
-        // If fingers drop below 2, stop rotating and re-enable hit-test
-        if (!e.touches || e.touches.length < 2) {
-          if (rotating) {
-            rotating = false;
-            setTimeout(() => setHitTestEnabled(true), 140);
-          }
-        }
-      }
-
-      // Wait until A-Frame canvas exists, then bind touch handlers
-      sceneEl.addEventListener("render-target-loaded", () => {
-        const canvas = sceneEl.canvas;
-        if (!canvas) return;
-
-        // Important: allow preventing default on touch events
-        canvas.style.touchAction = "none";
-
-        canvas.addEventListener("touchstart", onCanvasTouchStart, { passive: false });
-        canvas.addEventListener("touchmove",  onCanvasTouchMove,  { passive: false });
-        canvas.addEventListener("touchend",   onCanvasTouchEnd,   { passive: false });
-        canvas.addEventListener("touchcancel",onCanvasTouchEnd,   { passive: false });
-      });
-    </script>
-  </body>
+</body>
 </html>
