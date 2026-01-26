@@ -2,25 +2,26 @@
 <html>
   <head>
     <meta charset="utf-8" />
-    <title>AR Place Screen - 2-Finger Rotate</title>
+    <title>AR Place Screen - 2 Finger Rotate (Pixel Chrome)</title>
     <script src="https://aframe.io/releases/1.7.1/aframe.min.js"></script>
 
     <style>
       body { margin: 0; overflow: hidden; font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial; }
 
+      /* Keep overlay non-interactive so it DOESN'T block placement */
       #overlay {
         position: fixed;
         inset: 0;
         z-index: 9999;
-        pointer-events: none; /* allow touches to reach AR, unless we enable specific zones */
+        pointer-events: none;
       }
 
-      /* Optional deadzone at bottom so you can't place/move there */
+      /* Optional: deadzone that blocks placement/move in bottom strip */
       #deadzone {
         position: absolute;
         left: 0; right: 0; bottom: 0;
-        height: 120px;            /* adjust */
-        pointer-events: auto;     /* capture touches here */
+        height: 120px;
+        pointer-events: auto;      /* only this part is interactive */
         background: rgba(0,0,0,0);
         display: none;
         touch-action: none;
@@ -34,8 +35,8 @@
         font-size: 13px;
         text-shadow: 0 1px 2px rgba(0,0,0,0.6);
         padding: 10px 12px;
-        pointer-events: none;
         display: none;
+        pointer-events: none;
       }
     </style>
   </head>
@@ -43,7 +44,7 @@
   <body>
     <div id="overlay">
       <div id="deadzone"></div>
-      <div id="hint">1 finger: move/place • 2 fingers: rotate</div>
+      <div id="hint">1 finger: place/move • 2 fingers: rotate</div>
     </div>
 
     <a-scene
@@ -54,11 +55,11 @@
       vr-mode-ui="enabled: false">
 
       <!--
-        #screen = placed entity (position controlled by hit-test)
-        #yaw    = rotation pivot (we rotate this with 2-finger gesture)
-        #model  = glb, with optional 180° correction
+        #screen = moved by hit-test (position)
+        #yaw    = we rotate this (rotation)
+        #model  = GLB, with optional orientation fix
       -->
-      <a-entity id="screen" visible="true" scale="0.3 0.3 0.3">
+      <a-entity id="screen" visible="false" scale="0.5 0.5 0.5">
         <a-entity id="yaw" rotation="0 0 0">
           <a-entity id="model" gltf-model="screen.glb" rotation="0 180 0"></a-entity>
         </a-entity>
@@ -75,20 +76,15 @@
       const hint = document.getElementById("hint");
       const deadzone = document.getElementById("deadzone");
 
-      let placed = false;
       let inAR = false;
 
-      // --- Hit-test enable/disable (prevents unintended moves while rotating) ---
       function setHitTestEnabled(enabled) {
         sceneEl.setAttribute("ar-hit-test", { target: "#screen", enabled });
       }
 
-      // --- Show hint only in AR ---
-      const isVisibleTrue = (v) => v === true || v === "true";
-
       function showUI() {
         hint.style.display = "block";
-        deadzone.style.display = "block"; // comment out if you don't want deadzone
+        deadzone.style.display = "block"; // comment out if you don't want a deadzone
       }
       function hideUI() {
         hint.style.display = "none";
@@ -98,12 +94,7 @@
       sceneEl.addEventListener("enter-vr", () => { inAR = true; showUI(); });
       sceneEl.addEventListener("exit-vr",  () => { inAR = false; hideUI(); });
 
-      const obs = new MutationObserver(() => {
-        placed = isVisibleTrue(screenEl.getAttribute("visible"));
-      });
-      obs.observe(screenEl, { attributes: true, attributeFilter: ["visible"] });
-
-      // --- Deadzone blocks placement/move in bottom strip ---
+      // --------- Optional deadzone (bottom strip blocks placement) ----------
       function swallow(e) {
         e.preventDefault?.();
         e.stopPropagation?.();
@@ -114,60 +105,51 @@
       }
       function unlockPlacement(e) {
         swallow(e);
-        setTimeout(() => setHitTestEnabled(true), 120);
+        setTimeout(() => setHitTestEnabled(true), 140);
       }
-
-      ["touchstart"].forEach(evt => deadzone.addEventListener(evt, lockPlacement, { passive: false }));
-      ["touchend","touchcancel"].forEach(evt => deadzone.addEventListener(evt, unlockPlacement, { passive: false }));
+      deadzone.addEventListener("touchstart", lockPlacement, { passive: false });
+      deadzone.addEventListener("touchend", unlockPlacement, { passive: false });
+      deadzone.addEventListener("touchcancel", unlockPlacement, { passive: false });
 
       // =========================================================
-      // 2-FINGER ROTATION (reliable, no buttons)
+      // 2-FINGER ROTATE ON THE A-FRAME CANVAS (MOST RELIABLE)
       // =========================================================
 
-      // Track active touches (we rely on touch events)
       let rotating = false;
       let lastAvgX = 0;
-
-      // Degrees per pixel of horizontal movement (tweak as needed)
-      const ROT_SENSITIVITY = 0.25;
-
-      // Attach touch listeners to the overlay (DOM overlay supports this in WebXR)
-      // But we also attach to document as fallback.
-      const touchTarget = document.getElementById("overlay");
+      const ROT_SENSITIVITY = 0.25; // degrees per pixel of horizontal drag
 
       function getAvgX(touches) {
-        // average X of the first two touches
-        const x1 = touches[0].clientX;
-        const x2 = touches[1].clientX;
-        return (x1 + x2) / 2;
+        return (touches[0].clientX + touches[1].clientX) / 2;
       }
 
       function rotateByDegrees(deg) {
-        if (!placed) return;
         const r = yawEl.getAttribute("rotation") || { x: 0, y: 0, z: 0 };
         yawEl.setAttribute("rotation", { x: r.x, y: r.y + deg, z: r.z });
       }
 
-      function onTouchStart(e) {
-        // If user has 2 fingers down => start rotating mode
+      function onCanvasTouchStart(e) {
         if (!inAR) return;
+        if (!e.touches) return;
 
-        if (e.touches && e.touches.length === 2) {
-          // prevent AR select/move while rotating
-          swallow(e);
+        // Start rotating only when 2 fingers are down
+        if (e.touches.length === 2) {
+          // take over gesture
+          e.preventDefault();
+          // do NOT stopPropagation unless needed; but preventDefault is key
           setHitTestEnabled(false);
 
           rotating = true;
           lastAvgX = getAvgX(e.touches);
         }
-        // 1 finger: do nothing (let hit-test place/move as normal)
       }
 
-      function onTouchMove(e) {
+      function onCanvasTouchMove(e) {
         if (!inAR) return;
+        if (!e.touches) return;
 
-        if (rotating && e.touches && e.touches.length === 2) {
-          swallow(e);
+        if (rotating && e.touches.length === 2) {
+          e.preventDefault();
 
           const avgX = getAvgX(e.touches);
           const dx = avgX - lastAvgX;
@@ -177,31 +159,31 @@
         }
       }
 
-      function onTouchEnd(e) {
+      function onCanvasTouchEnd(e) {
         if (!inAR) return;
 
-        // If we drop below 2 touches, stop rotating and re-enable hit-test
+        // If fingers drop below 2, stop rotating and re-enable hit-test
         if (!e.touches || e.touches.length < 2) {
           if (rotating) {
             rotating = false;
-            // small delay so the XR select from this gesture doesn't move it
             setTimeout(() => setHitTestEnabled(true), 140);
           }
         }
       }
 
-      // Attach to overlay (primary)
-      touchTarget.addEventListener("touchstart", onTouchStart, { passive: false });
-      touchTarget.addEventListener("touchmove",  onTouchMove,  { passive: false });
-      touchTarget.addEventListener("touchend",   onTouchEnd,   { passive: false });
-      touchTarget.addEventListener("touchcancel",onTouchEnd,   { passive: false });
+      // Wait until A-Frame canvas exists, then bind touch handlers
+      sceneEl.addEventListener("render-target-loaded", () => {
+        const canvas = sceneEl.canvas;
+        if (!canvas) return;
 
-      // Fallback attach to document (some builds deliver touches here)
-      document.addEventListener("touchstart", onTouchStart, { passive: false });
-      document.addEventListener("touchmove",  onTouchMove,  { passive: false });
-      document.addEventListener("touchend",   onTouchEnd,   { passive: false });
-      document.addEventListener("touchcancel",onTouchEnd,   { passive: false });
+        // Important: allow preventing default on touch events
+        canvas.style.touchAction = "none";
+
+        canvas.addEventListener("touchstart", onCanvasTouchStart, { passive: false });
+        canvas.addEventListener("touchmove",  onCanvasTouchMove,  { passive: false });
+        canvas.addEventListener("touchend",   onCanvasTouchEnd,   { passive: false });
+        canvas.addEventListener("touchcancel",onCanvasTouchEnd,   { passive: false });
+      });
     </script>
   </body>
 </html>
-
