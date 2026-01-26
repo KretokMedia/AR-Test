@@ -8,18 +8,19 @@
     <style>
       body { margin: 0; overflow: hidden; font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial; }
 
+      /* WebXR DOM Overlay container */
       #overlay {
         position: fixed;
         inset: 0;
         z-index: 9999;
-        pointer-events: none;
+        pointer-events: none; /* taps go to AR except on buttons */
       }
 
       /* Deadzone behind buttons */
       #deadzone {
         position: absolute;
         left: 0; right: 0; bottom: 0;
-        height: 160px;                 /* change if you want */
+        height: 200px;                 /* change if you want */
         pointer-events: auto;
         background: rgba(0,0,0,0);     /* transparent */
         display: none;
@@ -85,11 +86,23 @@
       ar-hit-test="target: #screen; enabled: true"
       vr-mode-ui="enabled: false">
 
+      <!--
+        Wrapper fixes:
+        - #screenWrap lets you keep a constant orientation fix (rotation 180) without interfering with button rotation
+        - #screen is what gets placed/moved by hit-test
+      -->
       <a-entity
         id="screen"
-        gltf-model="screen.glb"
         visible="false"
         scale="0.08 0.08 0.08">
+
+        <!-- Rotate the MODEL inside the wrapper (fix backwards GLB) -->
+        <a-entity
+          id="screenWrap"
+          gltf-model="screen.glb"
+          rotation="0 180 0">
+        </a-entity>
+
       </a-entity>
 
       <a-camera></a-camera>
@@ -97,7 +110,8 @@
 
     <script>
       const sceneEl  = document.querySelector("a-scene");
-      const screenEl = document.querySelector("#screen");
+      const screenEl = document.querySelector("#screen");       // the placed entity (moved by hit-test)
+      const modelEl  = document.querySelector("#screenWrap");   // the actual GLB (we rotate this with buttons)
 
       const ui = document.getElementById("ui");
       const hint = document.getElementById("hint");
@@ -158,8 +172,12 @@
         setTimeout(() => setHitTestEnabled(true), 140);
       }
 
-      ["pointerdown","touchstart"].forEach(evt => deadzone.addEventListener(evt, lockPlacement, { passive: false }));
-      ["pointerup","touchend","pointercancel","touchcancel"].forEach(evt => deadzone.addEventListener(evt, unlockPlacement, { passive: false }));
+      ["pointerdown","touchstart"].forEach(evt =>
+        deadzone.addEventListener(evt, lockPlacement, { passive: false })
+      );
+      ["pointerup","touchend","pointercancel","touchcancel"].forEach(evt =>
+        deadzone.addEventListener(evt, unlockPlacement, { passive: false })
+      );
 
       // --- Controls (scale + rotate) ---
       const clamp = (v, min, max) => Math.min(max, Math.max(min, v));
@@ -171,14 +189,25 @@
         screenEl.object3D.scale.set(next, next, next);
       }
 
+      // Rotate using A-Frame rotation component (reliable)
       let rotTimer = null;
+
+      function rotateStep(dir) {
+        if (!placed) return;
+
+        // Rotate the MODEL (screenWrap), not the placed wrapper (#screen)
+        const r = modelEl.getAttribute("rotation") || { x: 0, y: 0, z: 0 };
+        const nextY = r.y + dir * 3; // degrees per tick
+        modelEl.setAttribute("rotation", { x: r.x, y: nextY, z: r.z });
+      }
+
       function startRotate(dir) {
         if (!placed) return;
         stopRotate();
-        rotTimer = setInterval(() => {
-          screenEl.object3D.rotation.y += dir * 0.05;
-        }, 16);
+        rotateStep(dir); // instant nudge on press
+        rotTimer = setInterval(() => rotateStep(dir), 16);
       }
+
       function stopRotate() {
         if (rotTimer) clearInterval(rotTimer);
         rotTimer = null;
