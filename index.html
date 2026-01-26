@@ -2,7 +2,7 @@
 <html>
   <head>
     <meta charset="utf-8" />
-    <title>AR Place Screen - Rotate Only (Deadzone)</title>
+    <title>AR Place Screen - 2-Finger Rotate</title>
     <script src="https://aframe.io/releases/1.7.1/aframe.min.js"></script>
 
     <style>
@@ -12,14 +12,15 @@
         position: fixed;
         inset: 0;
         z-index: 9999;
-        pointer-events: none;
+        pointer-events: none; /* allow touches to reach AR, unless we enable specific zones */
       }
 
+      /* Optional deadzone at bottom so you can't place/move there */
       #deadzone {
         position: absolute;
         left: 0; right: 0; bottom: 0;
-        height: 200px;
-        pointer-events: auto;
+        height: 120px;            /* adjust */
+        pointer-events: auto;     /* capture touches here */
         background: rgba(0,0,0,0);
         display: none;
         touch-action: none;
@@ -27,51 +28,14 @@
 
       #hint {
         position: absolute;
-        left: 0; right: 0; bottom: 210px;
+        left: 0; right: 0; bottom: 18px;
         text-align: center;
         color: white;
         font-size: 13px;
         text-shadow: 0 1px 2px rgba(0,0,0,0.6);
-        display: none;
+        padding: 10px 12px;
         pointer-events: none;
-      }
-
-      #ui {
-        position: absolute;
-        left: 0; right: 0; bottom: 0;
-        padding: 12px 10px;
         display: none;
-        gap: 10px;
-        justify-content: center;
-        align-items: center;
-        pointer-events: none;
-      }
-
-      .btn {
-        pointer-events: auto;
-        border: 0;
-        padding: 10px 14px;
-        border-radius: 999px;
-        background: rgba(0,0,0,0.65);
-        color: white;
-        font-size: 14px;
-        user-select: none;
-        -webkit-user-select: none;
-        touch-action: none; /* IMPORTANT: stops browser gestures interfering */
-      }
-
-      /* Optional tiny debug bubble (shows last action) */
-      #debug {
-        position: absolute;
-        top: 10px;
-        left: 10px;
-        padding: 6px 10px;
-        border-radius: 10px;
-        background: rgba(0,0,0,0.55);
-        color: #fff;
-        font-size: 12px;
-        display: none;
-        pointer-events: none;
       }
     </style>
   </head>
@@ -79,14 +43,7 @@
   <body>
     <div id="overlay">
       <div id="deadzone"></div>
-      <div id="hint">Tap ABOVE the buttons to place/move. Hold buttons to rotate.</div>
-
-      <div id="ui">
-        <button id="rotLeft" class="btn">↺ Rotate</button>
-        <button id="rotRight" class="btn">Rotate ↻</button>
-      </div>
-
-      <div id="debug"></div>
+      <div id="hint">1 finger: move/place • 2 fingers: rotate</div>
     </div>
 
     <a-scene
@@ -96,7 +53,12 @@
       ar-hit-test="target: #screen; enabled: true"
       vr-mode-ui="enabled: false">
 
-      <a-entity id="screen" visible="false" scale="0.3 0.3 0.3">
+      <!--
+        #screen = placed entity (position controlled by hit-test)
+        #yaw    = rotation pivot (we rotate this with 2-finger gesture)
+        #model  = glb, with optional 180° correction
+      -->
+      <a-entity id="screen" visible="false" scale="0.5 0.5 0.5">
         <a-entity id="yaw" rotation="0 0 0">
           <a-entity id="model" gltf-model="screen.glb" rotation="0 180 0"></a-entity>
         </a-entity>
@@ -110,153 +72,135 @@
       const screenEl = document.querySelector("#screen");
       const yawEl    = document.querySelector("#yaw");
 
-      const ui = document.getElementById("ui");
       const hint = document.getElementById("hint");
       const deadzone = document.getElementById("deadzone");
-      const debug = document.getElementById("debug");
-
-      const rotLeft  = document.getElementById("rotLeft");
-      const rotRight = document.getElementById("rotRight");
 
       let placed = false;
       let inAR = false;
 
-      const isVisibleTrue = (v) => v === true || v === "true";
-
-      function showOverlayUI() {
-        if (!inAR) return;
-        ui.style.display = "flex";
-        hint.style.display = "block";
-        deadzone.style.display = "block";
-        // debug.style.display = "block"; // uncomment if you want debug always visible
-      }
-
-      function hideOverlayUI() {
-        ui.style.display = "none";
-        hint.style.display = "none";
-        deadzone.style.display = "none";
-        debug.style.display = "none";
-      }
-
+      // --- Hit-test enable/disable (prevents unintended moves while rotating) ---
       function setHitTestEnabled(enabled) {
         sceneEl.setAttribute("ar-hit-test", { target: "#screen", enabled });
       }
 
-      sceneEl.addEventListener("enter-vr", () => { inAR = true; showOverlayUI(); });
-      sceneEl.addEventListener("exit-vr",  () => { inAR = false; hideOverlayUI(); });
+      // --- Show hint only in AR ---
+      const isVisibleTrue = (v) => v === true || v === "true";
+
+      function showUI() {
+        hint.style.display = "block";
+        deadzone.style.display = "block"; // comment out if you don't want deadzone
+      }
+      function hideUI() {
+        hint.style.display = "none";
+        deadzone.style.display = "none";
+      }
+
+      sceneEl.addEventListener("enter-vr", () => { inAR = true; showUI(); });
+      sceneEl.addEventListener("exit-vr",  () => { inAR = false; hideUI(); });
 
       const obs = new MutationObserver(() => {
         placed = isVisibleTrue(screenEl.getAttribute("visible"));
-        if (placed && inAR) showOverlayUI();
       });
       obs.observe(screenEl, { attributes: true, attributeFilter: ["visible"] });
 
+      // --- Deadzone blocks placement/move in bottom strip ---
       function swallow(e) {
-        if (!e) return;
         e.preventDefault?.();
         e.stopPropagation?.();
       }
-
       function lockPlacement(e) {
         swallow(e);
         setHitTestEnabled(false);
       }
-
       function unlockPlacement(e) {
         swallow(e);
-        setTimeout(() => setHitTestEnabled(true), 140);
+        setTimeout(() => setHitTestEnabled(true), 120);
       }
 
-      // Deadzone blocks placement/move
-      ["touchstart","mousedown"].forEach(evt =>
-        deadzone.addEventListener(evt, lockPlacement, { passive: false })
-      );
-      ["touchend","touchcancel","mouseup","mouseleave"].forEach(evt =>
-        deadzone.addEventListener(evt, unlockPlacement, { passive: false })
-      );
+      ["touchstart"].forEach(evt => deadzone.addEventListener(evt, lockPlacement, { passive: false }));
+      ["touchend","touchcancel"].forEach(evt => deadzone.addEventListener(evt, unlockPlacement, { passive: false }));
 
-      // -------- ROTATION (hold-to-rotate) --------
-      let rotTimer = null;
+      // =========================================================
+      // 2-FINGER ROTATION (reliable, no buttons)
+      // =========================================================
 
-      function rotateStep(dir) {
+      // Track active touches (we rely on touch events)
+      let rotating = false;
+      let lastAvgX = 0;
+
+      // Degrees per pixel of horizontal movement (tweak as needed)
+      const ROT_SENSITIVITY = 0.25;
+
+      // Attach touch listeners to the overlay (DOM overlay supports this in WebXR)
+      // But we also attach to document as fallback.
+      const touchTarget = document.getElementById("overlay");
+
+      function getAvgX(touches) {
+        // average X of the first two touches
+        const x1 = touches[0].clientX;
+        const x2 = touches[1].clientX;
+        return (x1 + x2) / 2;
+      }
+
+      function rotateByDegrees(deg) {
         if (!placed) return;
         const r = yawEl.getAttribute("rotation") || { x: 0, y: 0, z: 0 };
-        yawEl.setAttribute("rotation", { x: r.x, y: r.y + dir * 2.5, z: r.z });
+        yawEl.setAttribute("rotation", { x: r.x, y: r.y + deg, z: r.z });
       }
 
-      function startRotate(dir) {
-        if (!placed) return;
-        stopRotate();
-        rotateStep(dir); // immediate
-        rotTimer = setInterval(() => rotateStep(dir), 16);
-      }
+      function onTouchStart(e) {
+        // If user has 2 fingers down => start rotating mode
+        if (!inAR) return;
 
-      function stopRotate() {
-        if (rotTimer) clearInterval(rotTimer);
-        rotTimer = null;
-      }
-
-      function setDebug(text) {
-        // optional debug - helps confirm button events are firing in AR
-        debug.style.display = "block";
-        debug.textContent = text;
-        clearTimeout(setDebug._t);
-        setDebug._t = setTimeout(() => (debug.style.display = "none"), 800);
-      }
-
-      function bindHoldRotate(btn, dir, label) {
-        // Touch (mobile AR)
-        btn.addEventListener("touchstart", (e) => {
-          lockPlacement(e);
-          setDebug(label + " touchstart");
-          startRotate(dir);
-        }, { passive: false });
-
-        btn.addEventListener("touchend", (e) => {
-          setDebug(label + " touchend");
-          stopRotate();
-          unlockPlacement(e);
-        }, { passive: false });
-
-        btn.addEventListener("touchcancel", (e) => {
-          setDebug(label + " touchcancel");
-          stopRotate();
-          unlockPlacement(e);
-        }, { passive: false });
-
-        // Mouse (desktop testing)
-        btn.addEventListener("mousedown", (e) => {
-          lockPlacement(e);
-          setDebug(label + " mousedown");
-          startRotate(dir);
-        }, { passive: false });
-
-        btn.addEventListener("mouseup", (e) => {
-          setDebug(label + " mouseup");
-          stopRotate();
-          unlockPlacement(e);
-        }, { passive: false });
-
-        btn.addEventListener("mouseleave", (e) => {
-          stopRotate();
-        }, { passive: false });
-
-        // Click fallback (some browsers only deliver click)
-        btn.addEventListener("click", (e) => {
+        if (e.touches && e.touches.length === 2) {
+          // prevent AR select/move while rotating
           swallow(e);
-          setDebug(label + " click");
-          // single step rotate on click
-          rotateStep(dir);
-        }, { passive: false });
+          setHitTestEnabled(false);
+
+          rotating = true;
+          lastAvgX = getAvgX(e.touches);
+        }
+        // 1 finger: do nothing (let hit-test place/move as normal)
       }
 
-      bindHoldRotate(rotLeft, -1, "LEFT");
-      bindHoldRotate(rotRight, +1, "RIGHT");
+      function onTouchMove(e) {
+        if (!inAR) return;
 
-      // Safety: stop rotation if finger lifts anywhere
-      window.addEventListener("touchend", stopRotate, { passive: true });
-      window.addEventListener("mouseup", stopRotate, { passive: true });
-      window.addEventListener("touchcancel", stopRotate, { passive: true });
+        if (rotating && e.touches && e.touches.length === 2) {
+          swallow(e);
+
+          const avgX = getAvgX(e.touches);
+          const dx = avgX - lastAvgX;
+          lastAvgX = avgX;
+
+          rotateByDegrees(dx * ROT_SENSITIVITY);
+        }
+      }
+
+      function onTouchEnd(e) {
+        if (!inAR) return;
+
+        // If we drop below 2 touches, stop rotating and re-enable hit-test
+        if (!e.touches || e.touches.length < 2) {
+          if (rotating) {
+            rotating = false;
+            // small delay so the XR select from this gesture doesn't move it
+            setTimeout(() => setHitTestEnabled(true), 140);
+          }
+        }
+      }
+
+      // Attach to overlay (primary)
+      touchTarget.addEventListener("touchstart", onTouchStart, { passive: false });
+      touchTarget.addEventListener("touchmove",  onTouchMove,  { passive: false });
+      touchTarget.addEventListener("touchend",   onTouchEnd,   { passive: false });
+      touchTarget.addEventListener("touchcancel",onTouchEnd,   { passive: false });
+
+      // Fallback attach to document (some builds deliver touches here)
+      document.addEventListener("touchstart", onTouchStart, { passive: false });
+      document.addEventListener("touchmove",  onTouchMove,  { passive: false });
+      document.addEventListener("touchend",   onTouchEnd,   { passive: false });
+      document.addEventListener("touchcancel",onTouchEnd,   { passive: false });
     </script>
   </body>
 </html>
